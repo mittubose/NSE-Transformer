@@ -2,6 +2,8 @@ import yfinance as yf
 import mplfinance as mpf
 import pandas as pd
 import matplotlib.pyplot as plt
+import numpy as np
+from sklearn.metrics import mean_squared_error
 
 def plot_renko_chart(symbol, start='2024-01-01', end='2025-06-04'):
     print(f"\nFetching data for {symbol}...")
