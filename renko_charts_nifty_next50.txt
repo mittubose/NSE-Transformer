@@ -1,0 +1,112 @@
+import yfinance as yf
+import mplfinance as mpf
+import pandas as pd
+import matplotlib.pyplot as plt
+
+def plot_renko_chart(symbol, start='2024-01-01', end='2025-06-04'):
+    print(f"\nFetching data for {symbol}...")
+
+    ticker = yf.Ticker(symbol)
+    df = ticker.history(start=start, end=end, interval='1d', auto_adjust=False)
+
+    if df.empty:
+        print(f"No data found for {symbol}")
+        return
+
+    required_cols = ['Open', 'High', 'Low', 'Close']
+    if not all(col in df.columns for col in required_cols):
+        print(f"{symbol}: Missing OHLC columns.")
+        return
+
+    df = df.dropna(subset=required_cols)
+    if df.empty:
+        print(f"{symbol}: All OHLC rows are NaN. Skipping.")
+        return
+
+    avg_price = df['Close'].mean()
+    brick_size = round(0.01 * avg_price, 2)
+
+    print(f"{symbol}: Using 1% brick size = {brick_size}")
+
+    market_colors = mpf.make_marketcolors(
+        up='#089981',
+        down='#F23645',
+        edge={'up': '#089981', 'down': '#F23645'},
+        wick='black',
+        volume='in'
+    )
+
+    style = mpf.make_mpf_style(
+        base_mpf_style='charles',
+        marketcolors=market_colors,
+        rc={
+            'figure.figsize': (19.2, 10.8),
+            'axes.spines.top': False,
+            'axes.spines.right': False
+        }
+    )
+
+    # Create figure and axes explicitly
+    fig, axes = mpf.plot(
+        df,
+        type='renko',
+        style=style,
+        title=f"Renko Chart (1-Day) for {symbol} - Brick Size: 1%",
+        volume=True,
+        renko_params=dict(brick_size=brick_size),
+        tight_layout=False,
+        returnfig=True
+    )
+
+    # ✅ Adjust spacing to prevent right-side cropping
+    plt.subplots_adjust(right=0.97, left=0.06, bottom=0.15, top=0.93)
+    plt.show()
+
+# List of stocks
+stock_list = ["ABB.NS",
+    "ADANIGREEN.NS",
+    "ADANIPOWER.NS",
+    "AMBUJACEM.NS",
+    "DMART.NS",
+    "BAJAJHLDNG.NS",  
+    "BANKBARODA.NS",
+    "BPCL.NS",
+    "BOSCHLTD.NS",
+    "BRITANNIA.NS",
+    "CGPOWER.NS",
+    "CANBK.NS",
+    "CHOLAFIN.NS",
+    "DLF.NS",
+    "DABUR.NS",
+    "DIVISLAB.NS",
+    "SIEMENS.NS",
+    "GAIL.NS",
+    "GODREJCP.NS",
+    "HAVELLS.NS",
+    "HINDUNILVR.NS",
+    "HYUNDAI.NS",
+    "ICICIGI.NS",
+    "ICICIPRULI.NS",
+    "INDHOTEL.NS",
+    "IOC.NS",
+    "IRFC.NS",
+    "NAUKRI.NS",
+    "INDIGO.NS",
+    "JSWENERGY.NS",
+    "JINDALSTEL.NS",
+    "LTIM.NS",    
+    "PIDILITIND.NS",
+    "PFC.NS",
+    "PNB.NS",
+    "RECLTD.NS",
+    "MOTHERSUMI.NS",
+    "SHREECEM.NS",
+    "SWIGGY.NS",
+    "TVSMOTOR.NS",
+    "TATAPOWER.NS",
+    "TORNTPHARM.NS",
+    "ZYDUSLIFE.NS"]
+
+# Loop and plot each
+for stock in stock_list:
+    plot_renko_chart(stock)
