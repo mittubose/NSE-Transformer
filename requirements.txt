@@ -7,4 +7,5 @@ matplotlib>=3.5.0
 streamlit>=1.22.0
 plotly>=5.13.0
 ta>=0.10.0  # Technical analysis library
-tqdm>=4.62.3 
+tqdm>=4.62.3
+pyyaml 
