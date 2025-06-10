@@ -11,6 +11,9 @@ from transformer_model import StockTransformer
 from tqdm import tqdm
 import logging
 import matplotlib.pyplot as plt
+import argparse
+import json
+import os
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -76,58 +79,27 @@ def plot_losses(train_losses, val_losses, save_path='training_losses.png'):
     plt.savefig(save_path)
     plt.close()
 
-def train_model(model, train_loader, val_loader, criterion, optimizer, num_epochs, device):
-    """Train the transformer model"""
-    train_losses = []
-    val_losses = []
-    best_val_loss = float('inf')
-    
-    for epoch in range(num_epochs):
-        model.train()
-        total_loss = 0
-        progress_bar = tqdm(train_loader, desc=f'Epoch {epoch+1}/{num_epochs}')
-        
-        for batch_idx, (data, target) in enumerate(progress_bar):
-            data, target = data.to(device), target.to(device)
-            
-            optimizer.zero_grad()
-            output = model(data)
-            output = output.squeeze()  # Remove extra dimension
-            loss = criterion(output, target)
-            loss.backward()
-            optimizer.step()
-            
-            total_loss += loss.item()
-            progress_bar.set_postfix({'loss': loss.item()})
-        
-        avg_train_loss = total_loss / len(train_loader)
-        train_losses.append(avg_train_loss)
-        
-        # Validation
-        model.eval()
-        val_loss = 0
-        with torch.no_grad():
-            for data, target in val_loader:
-                data, target = data.to(device), target.to(device)
-                output = model(data)
-                output = output.squeeze()  # Remove extra dimension
-                val_loss += criterion(output, target).item()
-        
-        avg_val_loss = val_loss / len(val_loader)
-        val_losses.append(avg_val_loss)
-        
-        logger.info(f'Epoch {epoch+1}/{num_epochs} - '
-                   f'Train Loss: {avg_train_loss:.6f}, '
-                   f'Val Loss: {avg_val_loss:.6f}')
-        
-        # Save best model
-        if avg_val_loss < best_val_loss:
-            best_val_loss = avg_val_loss
-            torch.save(model.state_dict(), 'best_model.pth')
-            logger.info(f'New best model saved with validation loss: {best_val_loss:.6f}')
-    
-    # Plot losses
-    plot_losses(train_losses, val_losses)
+def log_training_session(symbol, start_date, end_date, train_loss, val_loss, model_path, history_path='training_history.json'):
+    record = {
+        'timestamp': str(date.today()),
+        'symbol': symbol,
+        'start_date': str(start_date),
+        'end_date': str(end_date),
+        'train_loss': train_loss,
+        'val_loss': val_loss,
+        'model_path': model_path
+    }
+    if os.path.exists(history_path):
+        with open(history_path, 'r') as f:
+            try:
+                history = json.load(f)
+            except Exception:
+                history = []
+    else:
+        history = []
+    history.append(record)
+    with open(history_path, 'w') as f:
+        json.dump(history, f, indent=2)
 
 def prepare_data(df):
     """Prepare and clean the data"""
@@ -163,69 +135,83 @@ def prepare_data(df):
     
     return df, feature_columns, price_scaler, indicator_scaler
 
-def main():
-    # Parameters
-    symbol = 'RELIANCE'
+def main(symbol='RELIANCE', days=730, model_path='best_model.pth'):
     seq_length = 30
     batch_size = 32
-    d_model = 32  # Reduced from 64
-    nhead = 4     # Reduced from 8
-    num_layers = 2 # Reduced from 4
+    d_model = 32
+    nhead = 4
+    num_layers = 2
     num_epochs = 50
-    learning_rate = 0.0001  # Reduced from 0.001
-    
+    learning_rate = 0.0001
+
     try:
-        # Fetch data
         end_date = date.today()
-        start_date = end_date - timedelta(days=365*2)
-        
+        start_date = end_date - timedelta(days=days)
         df = fetch_stock_data(symbol, start_date, end_date)
         logger.info(f'Initial data shape: {df.shape}')
-        
-        # Prepare data
         df, feature_columns, price_scaler, indicator_scaler = prepare_data(df)
         logger.info(f'Final data shape: {df.shape}')
-        
-        # Create sequences
         X, y = prepare_sequences(df[feature_columns], seq_length)
         logger.info(f'X shape: {X.shape}, y shape: {y.shape}')
-        
-        # Split data
         train_size = int(0.8 * len(X))
         X_train, X_val = X[:train_size], X[train_size:]
         y_train, y_val = y[:train_size], y[train_size:]
-        
-        # Create data loaders
         train_dataset = torch.utils.data.TensorDataset(
             torch.FloatTensor(X_train), torch.FloatTensor(y_train))
         val_dataset = torch.utils.data.TensorDataset(
             torch.FloatTensor(X_val), torch.FloatTensor(y_val))
-        
-        train_loader = torch.utils.data.DataLoader(
-            train_dataset, batch_size=batch_size, shuffle=True)
-        val_loader = torch.utils.data.DataLoader(
-            val_dataset, batch_size=batch_size)
-        
-        # Initialize model
+        train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+        val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        logger.info(f'Using device: {device}')
-        
         model = StockTransformer(
-            input_dim=len(feature_columns),
+            input_size=len(feature_columns),
             d_model=d_model,
             nhead=nhead,
             num_layers=num_layers
         ).to(device)
-        
         criterion = nn.MSELoss()
         optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-        
-        # Train model
-        train_model(model, train_loader, val_loader, criterion, optimizer, num_epochs, device)
-        
+        train_losses = []
+        val_losses = []
+        best_val_loss = float('inf')
+        for epoch in range(num_epochs):
+            model.train()
+            total_loss = 0
+            for data, target in train_loader:
+                data, target = data.to(device), target.to(device)
+                optimizer.zero_grad()
+                output = model(data)
+                output = output.squeeze()
+                loss = criterion(output, target)
+                loss.backward()
+                optimizer.step()
+                total_loss += loss.item()
+            avg_train_loss = total_loss / len(train_loader)
+            train_losses.append(avg_train_loss)
+            model.eval()
+            val_loss = 0
+            with torch.no_grad():
+                for data, target in val_loader:
+                    data, target = data.to(device), target.to(device)
+                    output = model(data)
+                    output = output.squeeze()
+                    val_loss += criterion(output, target).item()
+            avg_val_loss = val_loss / len(val_loader)
+            val_losses.append(avg_val_loss)
+            logger.info(f'Epoch {epoch+1}/{num_epochs} - Train Loss: {avg_train_loss:.6f}, Val Loss: {avg_val_loss:.6f}')
+            if avg_val_loss < best_val_loss:
+                best_val_loss = avg_val_loss
+                torch.save(model.state_dict(), model_path)
+                logger.info(f'New best model saved with validation loss: {best_val_loss:.6f}')
+        plot_losses(train_losses, val_losses)
+        log_training_session(symbol, start_date, end_date, float(train_losses[-1]), float(val_losses[-1]), model_path)
     except Exception as e:
-        logger.error(f"Error in main execution: {str(e)}")
-        raise
+        logger.error(f"Training failed: {e}")
 
-if __name__ == "__main__":
-    main() 
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='Train the Transformer model for stock prediction.')
+    parser.add_argument('--symbol', type=str, default='RELIANCE', help='Stock symbol (without .NS)')
+    parser.add_argument('--days', type=int, default=730, help='Number of days of historical data to use')
+    parser.add_argument('--model_path', type=str, default='best_model.pth', help='Path to save the trained model')
+    args = parser.parse_args()
+    main(symbol=args.symbol, days=args.days, model_path=args.model_path) 
